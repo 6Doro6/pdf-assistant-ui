@@ -11,6 +11,7 @@ from helpers import (
     _req,
     fetch_user_access_via_admin,
     submit_access_request,
+    _mask_first_last,
 )
 
 # --- Safe secrets/env bootstrap ---
@@ -46,10 +47,59 @@ UPLOAD_FILE_FIELD   = os.getenv("UPLOAD_FILE_FIELD", "pdf")
 MIN_QUESTION_CHARS  = int(os.getenv("MIN_QUESTION_CHARS", "10"))
 LANG_LABEL_TO_CODE = {"NL":"nl","FR":"fr","DE":"de","EN":"en"}
 
+# ---- Global styles + overview (RIGHT BELOW THE TITLE) ----
+
 st.title("📕 PDF Assistant")
-st.caption(
-    "Enter your **User ID**. We’ll verify your role & rights server-side and enable features accordingly."
-)
+
+st.markdown("""
+<style>
+/* Overview block */
+.app-overview{
+  margin-top:.25rem;
+  padding:.9rem 1rem;
+  border:1px solid rgba(49,51,63,.15);
+  border-radius:.6rem;
+  background: rgba(240,242,246,.55);
+}
+.app-overview p{
+  margin:0;
+  font-size:.98rem;
+  line-height:1.55;
+}
+
+/* Status cards */
+.status-card{
+  border:1px solid rgba(49,51,63,.15);
+  border-radius:.8rem;
+  padding:1rem 1rem .85rem;
+  #background: grey;
+}
+.status-title{
+  font-size:1.12rem;   /* title bigger than value */
+  font-weight:700;
+  margin:0 0 .15rem 0;
+}
+.status-value{
+  font-size:.96rem;    /* smaller than title */
+  opacity:.9;
+  margin:0;
+  word-break:break-word;
+}
+.status-icon{
+  font-size:1.9rem;    /* big icon only for Access */
+  line-height:1;
+  display:inline-block;
+  margin-top:.15rem;
+}
+</style>
+
+<div class="app-overview">
+  <p><strong>How it works:</strong> enter your <em>User ID</em> in the left sidebar and click <em>Start session</em>.
+  Then upload a PDF and press <em>Process PDF</em>. Finally, type a question about the document and click
+  <em>Get answer</em>. You can optionally enable verification and suggested follow-ups.</p>
+</div>
+""", unsafe_allow_html=True)
+
 
 # ==================== UI helpers ====================
 def show_verification(v: dict | None):
@@ -63,17 +113,71 @@ def show_verification(v: dict | None):
     if v.get("explanation"): st.write(v["explanation"])
     if v.get("issues_found"): st.caption("Issues: " + ", ".join(v["issues_found"]))
 
+#def show_citations(cits: list | None):
+#    if not cits: return
+#    st.subheader("📝 Citations")
+#    for c in cits:
+#        meta = " · ".join(filter(None, [
+#            f"ID {c.get('id','?')}",
+#            f"p.{c.get('page')}" if c.get("page") else None,
+#            c.get("section") or None
+#        ]))
+#        snippet = c.get("snippet", "")
+#        st.markdown(f"- **{meta}** — {snippet}")
+
 def show_citations(cits: list | None):
-    if not cits: return
-    st.subheader("📝 Citations")
-    for c in cits:
-        meta = " · ".join(filter(None, [
-            f"ID {c.get('id','?')}",
-            f"p.{c.get('page')}" if c.get("page") else None,
-            c.get("section") or None
-        ]))
-        snippet = c.get("snippet", "")
-        st.markdown(f"- **{meta}** — {snippet}")
+    if not cits:
+        return
+
+    # Sort by page if available (so opening the block feels organized)
+    try:
+        cits_sorted = sorted(cits, key=lambda x: (x.get("page") is None, x.get("page")))
+    except Exception:
+        cits_sorted = cits
+
+    st.markdown("""
+    <style>
+      .cite-item{
+        border:1px solid rgba(49,51,63,.15);
+        border-radius:.5rem;
+        padding:.6rem .75rem;
+        margin:.5rem 0;
+        background: rgba(240,242,246,.25);
+      }
+      .page-pill{
+        display:inline-block;
+        padding:.15rem .6rem;
+        border-radius:999px;
+        font-weight:700;
+        border:1px solid rgba(49,51,63,.25);
+        margin-right:.5rem;
+      }
+      .cite-meta{
+        font-weight:600;
+        opacity:.85;
+      }
+      .cite-snippet{
+        margin-top:.35rem;
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+    with st.expander(f"📝 Citations ({len(cits_sorted)})", expanded=False):
+        for c in cits_sorted:
+            page = c.get("page")
+            section = c.get("section")
+            snippet = (c.get("snippet") or "").strip()
+
+            page_txt = f"Page {page}" if page else "Page —"
+            section_txt = f"— {section}" if section else ""
+
+            st.markdown(f"""
+            <div class="cite-item">
+              <span class="page-pill">{page_txt}</span>
+              <span class="cite-meta">{section_txt}</span>
+              <div class="cite-snippet">{snippet}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ==================== SESSION ====================
 if "public_user_id" not in st.session_state: st.session_state.public_user_id = ""
@@ -89,17 +193,27 @@ if "hc_b" not in st.session_state: st.session_state.hc_b = None
 if "rights" not in st.session_state: st.session_state.rights = []
 if "can_upload_right" not in st.session_state: st.session_state.can_upload_right = False
 if "can_query_right"  not in st.session_state: st.session_state.can_query_right  = False
+if "uid_locked" not in st.session_state: st.session_state.uid_locked = False
 
 
 # ==================== SIDEBAR ====================
 with st.sidebar:
     st.subheader("User")
-    st.session_state.public_user_id = st.text_input(
-        "User ID",
-        value=st.session_state.public_user_id,
-        placeholder="Enter the ID you received to use the tool",
-        help=f"An ID can be requested by email or by clicking on request button"
-    )
+    if not st.session_state.uid_locked:
+        st.session_state.public_user_id = st.text_input(
+            "User ID",
+            value=st.session_state.public_user_id,
+            placeholder="Enter the ID you received to use the tool",
+            help="An ID can be requested by email or by clicking on request button",
+            key="user_id_input",
+        )
+    else:
+        st.text_input(
+            "User ID (locked)",
+            value=_mask_first_last(st.session_state.public_user_id),
+            disabled=True,
+        )
+        st.caption("🔒 User ID is locked. Use **Reset** to change it.")
 
     st.subheader("Language")
     lang_choice = st.radio(
@@ -113,8 +227,11 @@ with st.sidebar:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("Start session", type="primary",
-                    disabled=len(st.session_state.public_user_id.strip()) < 3):
+        if st.button(
+            "Start session",
+            type="primary",
+            disabled=(st.session_state.uid_locked or len(st.session_state.public_user_id.strip()) < 3),
+        ):
             uid = st.session_state.public_user_id.strip()
             status = fetch_user_access_via_admin(uid)
 
@@ -129,7 +246,6 @@ with st.sidebar:
                 st.session_state.rights = status.get("rights") or []
                 st.session_state.can_upload_right = bool(status.get("can_upload"))
                 st.session_state.can_query_right  = bool(status.get("can_query"))
-                # legacy flag used elsewhere
                 st.session_state.can_query = st.session_state.can_query_right
 
                 rights = set(st.session_state.rights)
@@ -143,21 +259,21 @@ with st.sidebar:
                     label, icon = "✅ query only", "✅"
                 else:
                     label, icon = "⛔ no rights", "⚠️"
-
                 st.toast(f"Role: {st.session_state.role or 'unknown'} — {label}", icon=icon)
+
+            # 🔒 Lock the ID after attempting to start the session
+            st.session_state.uid_locked = True
+
     with c2:
-        if st.button("Request access"
-                     #, disabled=len(st.session_state.public_user_id.strip()) < 3
-                     ):
-            # Show the form on click; generate a simple human check (math) if not set
+        if st.button("Request access"):
             st.session_state.show_request_form = True
             if not (st.session_state.hc_a and st.session_state.hc_b):
                 st.session_state.hc_a = random.randint(3, 9)
                 st.session_state.hc_b = random.randint(2, 8)
 
     with c3:
-        if st.button("Reset"):
-            for k in ("role", "can_query", "doc_id", "history", "q_text", "show_request_form", "hc_a", "hc_b"):
+        if st.button("Reset session"):
+            for k in ("role", "can_query", "doc_id", "history", "q_text", "show_request_form", "hc_a", "hc_b", "uid_locked"):
                 st.session_state.pop(k, None)
             st.rerun()
 
@@ -266,37 +382,56 @@ rights = set(st.session_state.rights or [])
 can_upload = st.session_state.can_upload_right
 can_query_right = st.session_state.can_query_right
 
-cols = st.columns([1,1,2,3])
-with cols[0]: st.metric("User ID", uid or "—")
-with cols[1]: st.metric("Role", role or "unknown")
+# Access icon (only icon in the Access column)
+if "*" in rights:
+    access_icon, access_tip = "✅", "all rights"
+elif can_upload and can_query_right:
+    access_icon, access_tip = "✅", "upload + query"
+elif can_upload:
+    access_icon, access_tip = "⬆️", "upload only"
+elif can_query_right:
+    access_icon, access_tip = "🔎", "query only"
+else:
+    access_icon, access_tip = "⛔", "no rights"
+
+rights_value = "*" if "*" in rights else (", ".join(sorted(rights)) if rights else "—")
+
+cols = st.columns(3, gap="large")  # gives space between items
+with cols[0]:
+    st.markdown(f"**Role:** {role or 'unknown'}")
+with cols[1]:
+    st.markdown(f"**Access:** {access_icon}")
 with cols[2]:
-    if "*" in rights: acc = "✅ all"
-    elif can_upload and can_query_right: acc = "✅ upload+query"
-    elif can_upload: acc = "✅ upload only"
-    elif can_query_right: acc = "✅ query only"
-    else: acc = "⛔ blocked"
-    st.metric("Access", acc)
-with cols[3]:
-    st.metric("Rights", "*" if "*" in rights else (", ".join(sorted(rights)) if rights else "—"))
+    st.markdown(f"**Rights:** {rights_value}")
+
+# little vertical breathing room below the row
+st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
 if not uid:
-    #st.info("Enter a **User ID** in the sidebar, then click **Start session**.")
+    st.info("Enter a **User ID** in the sidebar, then click **Start session**.")
     st.stop()
 
 # ==================== UPLOAD ====================
 st.header("📄 Upload PDF")
-u1, u2 = st.columns([3,1])
-with u1:
-    upload = st.file_uploader("Choose a PDF", type="pdf", disabled=not can_upload)
-with u2:
-    if st.button("Process PDF", disabled=(not can_upload or upload is None)):
-        files = {UPLOAD_FILE_FIELD: (upload.name, upload.getvalue(), "application/pdf")}
-        r = _req("POST", UPLOAD_PATH, user_id=uid, files=files)
-        if r.ok:
-            st.session_state.doc_id = (r.json() or {}).get("doc_id")
-            st.success(f"Processed ✓  doc_id = {st.session_state.doc_id}")
-        else:
-            st.error(f"Upload failed: {r.status_code} {r.text}")
+upload = st.file_uploader("Choose a PDF", type="pdf", disabled=not can_upload)
+
+if st.button("Process PDF", type="primary", disabled=(not can_upload or upload is None)):
+    files = {UPLOAD_FILE_FIELD: (upload.name, upload.getvalue(), "application/pdf")}
+
+    # ---- ensure API key is attached ----
+    api_key = os.getenv("UI_ADMIN_API_KEY") or os.getenv("ADMIN_API_KEY") or ""
+    headers = {"X-User-Id": uid}
+    if api_key:
+        headers["X-API-Key"] = api_key
+
+    r = _req("POST", UPLOAD_PATH, user_id=uid, files=files, headers=headers)
+    if getattr(r, "ok", False):
+        st.session_state.doc_id = (r.json() or {}).get("doc_id")
+        st.success(
+            #f"Processed ✓  doc_id = {st.session_state.doc_id}")
+            f"Processed ✓")
+    else:
+        st.error(f"Upload failed: {getattr(r, 'status_code', '?')} {getattr(r, 'text', '')}")
 
 # ==================== Q&A ====================
 if st.session_state.get("doc_id"):
@@ -320,7 +455,13 @@ if st.session_state.get("doc_id"):
             "do_followups": do_followups,
             "lang_hint": st.session_state.lang_code,
         }
-        r = _req("POST", QUERY_PATH, user_id=uid, json=payload)
+
+        api_key = (os.getenv("UI_ADMIN_API_KEY") or os.getenv("ADMIN_API_KEY") or "").strip()
+        headers = {"X-User-Id": uid}
+        if api_key:
+            headers["X-API-Key"] = api_key
+
+        r = _req("POST", QUERY_PATH, user_id=uid, json=payload, headers=headers)
         if not getattr(r, "ok", False):
             st.error(f"Query failed: {r.status_code} {r.text}")
         else:
@@ -344,17 +485,39 @@ if st.session_state.get("doc_id"):
             deepen  = f.get("deepen") or []
             if clarify or deepen:
                 st.subheader("🔍 Follow-up questions")
-                a, b = st.columns(2)
-                with a:
-                    for i, q2 in enumerate(clarify, 1):
-                        if st.button(f"{i}. {q2}", key=f"clarify_{i}"):
-                            st.session_state.q_text = q2
-                            st.rerun()
-                with b:
-                    for i, q2 in enumerate(deepen, 1):
-                        if st.button(f"{i}. {q2}", key=f"deepen_{i}"):
-                            st.session_state.q_text = q2
-                            st.rerun()
+
+                # lightweight styling for separation
+                st.markdown("""
+                <style>
+                .fu-card{border:1px solid rgba(49,51,63,.18);border-radius:.6rem;padding:.75rem 1rem;margin-top:.25rem}
+                .fu-title{font-weight:700;margin:0 0 .5rem}
+                .fu-empty{opacity:.6}
+                </style>
+                """, unsafe_allow_html=True)
+
+                col_c, col_d = st.columns(2, gap="large")
+
+                with col_c:
+                    st.markdown('<div class="fu-card"><div class="fu-title">🧼 Clarify</div>', unsafe_allow_html=True)
+                    if clarify:
+                        for i, q2 in enumerate(clarify, 1):
+                            if st.button(q2, key=f"clarify_{i}_{abs(hash(q2))}", use_container_width=True):
+                                st.session_state.q_text = q2
+                                st.rerun()
+                    else:
+                        st.markdown('<div class="fu-empty">No clarify suggestions</div>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                with col_d:
+                    st.markdown('<div class="fu-card"><div class="fu-title">🧠 Deepen</div>', unsafe_allow_html=True)
+                    if deepen:
+                        for i, q2 in enumerate(deepen, 1):
+                            if st.button(q2, key=f"deepen_{i}_{abs(hash(q2))}", use_container_width=True):
+                                st.session_state.q_text = q2
+                                st.rerun()
+                    else:
+                        st.markdown('<div class="fu-empty">No deepen suggestions</div>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
             # Session history
             st.session_state.history.append({"q": q, "res": res, "ts": time.time()})
