@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 from pathlib import Path
 import streamlit as st
-st.set_page_config(page_title="PDF Assistant", page_icon="📕", layout="wide")
+st.set_page_config(page_title="PDF Assistant", page_icon="📕", layout="wide", initial_sidebar_state="expanded",)
 import time
 import random
 from helpers import (
@@ -12,6 +12,7 @@ from helpers import (
     fetch_user_access_via_admin,
     submit_access_request,
     _mask_first_last,
+    _fmt_secs,
 )
 
 # --- Safe secrets/env bootstrap ---
@@ -51,54 +52,54 @@ LANG_LABEL_TO_CODE = {"NL":"nl","FR":"fr","DE":"de","EN":"en"}
 
 st.title("📕 PDF Assistant")
 
-st.markdown("""
-<style>
-/* Overview block */
-.app-overview{
-  margin-top:.25rem;
-  padding:.9rem 1rem;
-  border:1px solid rgba(49,51,63,.15);
-  border-radius:.6rem;
-  background: rgba(240,242,246,.55);
-}
-.app-overview p{
-  margin:0;
-  font-size:.98rem;
-  line-height:1.55;
-}
+#st.markdown("""
+#<style>
+#/* Overview block */
+#.app-overview{
+#  margin-top:.25rem;
+#  padding:.9rem 1rem;
+#  border:1px solid rgba(49,51,63,.15);
+#  border-radius:.6rem;
+#  background: rgba(240,242,246,.55);
+#}
+#.app-overview p{
+#  margin:0;
+#  font-size:.98rem;
+#  line-height:1.55;
+#}
 
-/* Status cards */
-.status-card{
-  border:1px solid rgba(49,51,63,.15);
-  border-radius:.8rem;
-  padding:1rem 1rem .85rem;
-  #background: grey;
-}
-.status-title{
-  font-size:1.12rem;   /* title bigger than value */
-  font-weight:700;
-  margin:0 0 .15rem 0;
-}
-.status-value{
-  font-size:.96rem;    /* smaller than title */
-  opacity:.9;
-  margin:0;
-  word-break:break-word;
-}
-.status-icon{
-  font-size:1.9rem;    /* big icon only for Access */
-  line-height:1;
-  display:inline-block;
-  margin-top:.15rem;
-}
-</style>
+#/* Status cards */
+#.status-card{
+#  border:1px solid rgba(49,51,63,.15);
+#  border-radius:.8rem;
+#  padding:1rem 1rem .85rem;
+#  #background: grey;
+#}
+#.status-title{
+#  font-size:1.12rem;   /* title bigger than value */
+#  font-weight:700;
+#  margin:0 0 .15rem 0;
+#}
+#.status-value{
+#  font-size:.96rem;    /* smaller than title */
+#  opacity:.9;
+#  margin:0;
+#  word-break:break-word;
+#}
+#.status-icon{
+#  font-size:1.9rem;    /* big icon only for Access */
+#  line-height:1;
+#  display:inline-block;
+#  margin-top:.15rem;
+#}
+#</style>
 
-<div class="app-overview">
-  <p><strong>How it works:</strong> enter your <em>User ID</em> in the left sidebar and click <em>Start session</em>.
-  Then upload a PDF and press <em>Process PDF</em>. Finally, type a question about the document and click
-  <em>Get answer</em>. You can optionally enable verification and suggested follow-ups.</p>
-</div>
-""", unsafe_allow_html=True)
+#<div class="app-overview">
+#  <p><strong>How it works:</strong> enter your <em>User ID</em> in the left sidebar and click <em>Start session</em>.
+#  Then upload a PDF and press <em>Process PDF</em>. Finally, type a question about the document and click
+#  <em>Get answer</em>. You can optionally enable verification and suggested follow-ups.</p>
+# </div>
+#""", unsafe_allow_html=True)
 
 
 # ==================== UI helpers ====================
@@ -180,21 +181,60 @@ def show_citations(cits: list | None):
             """, unsafe_allow_html=True)
 
 # ==================== SESSION ====================
-if "public_user_id" not in st.session_state: st.session_state.public_user_id = ""
-if "role" not in st.session_state: st.session_state.role = None
-if "can_query" not in st.session_state: st.session_state.can_query = False
-if "doc_id" not in st.session_state: st.session_state.doc_id = None
-if "history" not in st.session_state: st.session_state.history = []
-if "q_text" not in st.session_state: st.session_state.q_text = ""
-if "lang_code" not in st.session_state: st.session_state.lang_code = "fr"   # default FR
-if "show_request_form" not in st.session_state: st.session_state.show_request_form = False
-if "hc_a" not in st.session_state: st.session_state.hc_a = None
-if "hc_b" not in st.session_state: st.session_state.hc_b = None
-if "rights" not in st.session_state: st.session_state.rights = []
-if "can_upload_right" not in st.session_state: st.session_state.can_upload_right = False
-if "can_query_right"  not in st.session_state: st.session_state.can_query_right  = False
-if "uid_locked" not in st.session_state: st.session_state.uid_locked = False
+for k, v in {
+    "public_user_id": "",
+    "role": None,
+    "can_query": False,
+    "doc_id": None,
+    "history": [],
+    "q_text": "",
+    "lang_code": "fr",  # default FR
+    "show_request_form": False,
+    "hc_a": None,
+    "hc_b": None,
+    "rights": [],
+    "can_upload_right": False,
+    "can_query_right": False,
+    "uid_locked": False,
+    "processed_token": None,
+    "processed_name": None,
+    "processed_size": None
+}.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
+# ==================== STATUS BANNER ====================
+uid  = st.session_state["public_user_id"].strip()
+role = st.session_state["role"]
+rights = set(st.session_state["rights"])
+can_upload = st.session_state["can_upload_right"]
+can_query_right = st.session_state["can_query_right"]
+has_access = ("*" in rights) or can_upload or can_query_right
+
+# Access icon (only icon in the Access column)
+if "*" in rights:
+    access_icon, access_tip = "✅", "all rights"
+elif can_upload and can_query_right:
+    access_icon, access_tip = "✅", "upload + query"
+elif can_upload:
+    access_icon, access_tip = "⬆️", "upload only"
+elif can_query_right:
+    access_icon, access_tip = "🔎", "query only"
+else:
+    access_icon, access_tip = "⛔", "no rights"
+
+rights_value = "*" if "*" in rights else (", ".join(sorted(rights)) if rights else "—")
+
+cols = st.columns(3, gap="large")  # gives space between items
+with cols[0]:
+    st.markdown(f"**Role:** {role or 'unknown'}")
+with cols[1]:
+    st.markdown(f"**Access:** {access_icon}")
+with cols[2]:
+    st.markdown(f"**Rights:** {rights_value}")
+
+# little vertical breathing room below the row
+st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
 # ==================== SIDEBAR ====================
 with st.sidebar:
@@ -263,19 +303,41 @@ with st.sidebar:
 
             # 🔒 Lock the ID after attempting to start the session
             st.session_state.uid_locked = True
-
-    with c2:
-        if st.button("Request access"):
-            st.session_state.show_request_form = True
-            if not (st.session_state.hc_a and st.session_state.hc_b):
-                st.session_state.hc_a = random.randint(3, 9)
-                st.session_state.hc_b = random.randint(2, 8)
-
-    with c3:
-        if st.button("Reset session"):
-            for k in ("role", "can_query", "doc_id", "history", "q_text", "show_request_form", "hc_a", "hc_b", "uid_locked"):
-                st.session_state.pop(k, None)
             st.rerun()
+
+        with c2:
+            if st.button("Request access", disabled=has_access, help="Disabled because you already have access."):
+                st.session_state.show_request_form = True
+                if not (st.session_state.hc_a and st.session_state.hc_b):
+                    st.session_state.hc_a = random.randint(3, 9)
+                    st.session_state.hc_b = random.randint(2, 8)
+            #if has_access:
+            #    st.caption("✅ You already have access.")
+
+        with c3:
+            if st.button("Reset session"):
+                # Fully reset: clear widget + app state
+                for k in (
+                    "user_id_input",        # ← the text_input widget's state
+                    "public_user_id",
+                    "role",
+                    "rights",
+                    "can_upload_right",
+                    "can_query_right",
+                    "can_query",
+                    "doc_id",
+                    "history",
+                    "q_text",
+                    "show_request_form",
+                    "hc_a",
+                    "hc_b",
+                    "uid_locked",
+                    "processed_token",
+                    "processed_name",
+                    "processed_size"
+                ):
+                    st.session_state.pop(k, None)
+                st.rerun()
 
     #with st.expander("⚙️ Advanced (UI ↔ API)"):
     #    st.code("\n".join([
@@ -375,66 +437,77 @@ with st.sidebar:
                         st.error("Sending request failed.")
                         st.caption(str(resp))
 
-# ==================== STATUS BANNER ====================
-uid  = st.session_state.public_user_id.strip()
-role = st.session_state.role
-rights = set(st.session_state.rights or [])
-can_upload = st.session_state.can_upload_right
-can_query_right = st.session_state.can_query_right
-
-# Access icon (only icon in the Access column)
-if "*" in rights:
-    access_icon, access_tip = "✅", "all rights"
-elif can_upload and can_query_right:
-    access_icon, access_tip = "✅", "upload + query"
-elif can_upload:
-    access_icon, access_tip = "⬆️", "upload only"
-elif can_query_right:
-    access_icon, access_tip = "🔎", "query only"
-else:
-    access_icon, access_tip = "⛔", "no rights"
-
-rights_value = "*" if "*" in rights else (", ".join(sorted(rights)) if rights else "—")
-
-cols = st.columns(3, gap="large")  # gives space between items
-with cols[0]:
-    st.markdown(f"**Role:** {role or 'unknown'}")
-with cols[1]:
-    st.markdown(f"**Access:** {access_icon}")
-with cols[2]:
-    st.markdown(f"**Rights:** {rights_value}")
-
-# little vertical breathing room below the row
-st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-
 if not uid:
     st.info("Enter a **User ID** in the sidebar, then click **Start session**.")
     st.stop()
 
 # ==================== UPLOAD ====================
 st.header("📄 Upload PDF")
-upload = st.file_uploader("Choose a PDF", type="pdf", disabled=not can_upload)
 
-if st.button("Process PDF", type="primary", disabled=(not can_upload or upload is None)):
-    files = {UPLOAD_FILE_FIELD: (upload.name, upload.getvalue(), "application/pdf")}
+# Always compute can_upload from session to avoid stale locals
+can_upload = bool(st.session_state.can_upload_right)
 
-    # ---- ensure API key is attached ----
-    api_key = os.getenv("UI_ADMIN_API_KEY") or os.getenv("ADMIN_API_KEY") or ""
-    headers = {"X-User-Id": uid}
-    if api_key:
-        headers["X-API-Key"] = api_key
+# Use a stable key so we can reset uploader later if needed
+upload = st.file_uploader("Choose a PDF", type="pdf", disabled=not can_upload, key="pdf_uploader")
 
-    r = _req("POST", UPLOAD_PATH, user_id=uid, files=files, headers=headers)
-    if getattr(r, "ok", False):
-        st.session_state.doc_id = (r.json() or {}).get("doc_id")
-        st.success(
-            #f"Processed ✓  doc_id = {st.session_state.doc_id}")
-            f"Processed ✓")
+def _upload_token(u):
+    if not u:
+        return None
+    try:
+        size = len(u.getbuffer())  # reliable across reruns
+    except Exception:
+        size = len(u.getvalue())
+    return f"{u.name}:{size}", u.name, size
+
+# Derive current selection token (if any)
+if upload:
+    current_token, current_name, current_size = _upload_token(upload)
+else:
+    current_token, current_name, current_size = None, None, None
+
+# Is there a new (unprocessed) selection?
+is_new_unprocessed = bool(upload) and (st.session_state.processed_token != current_token)
+
+# --- Persistent processed status badge ---
+status_col1, status_col2 = st.columns([0.8, 0.2])
+
+with status_col1:
+    if st.session_state.doc_id and not is_new_unprocessed:
+        # Show the processed badge even if no file is currently selected
+        shown_name = current_name or st.session_state.processed_name or "document"
+        st.success(f"Processed ✓ — {shown_name}")
+    elif is_new_unprocessed:
+        st.warning("New file selected — not processed yet.")
     else:
-        st.error(f"Upload failed: {getattr(r, 'status_code', '?')} {getattr(r, 'text', '')}")
+        st.info("No processed document yet.")
+
+with status_col2:
+    # Show "Process PDF" only when a new file is selected
+    show_process_btn = can_upload and is_new_unprocessed and (upload is not None)
+    if show_process_btn and st.button("Process PDF", type="primary", use_container_width=True):
+        files = {UPLOAD_FILE_FIELD: (upload.name, upload.getvalue(), "application/pdf")}
+
+        # ---- ensure API key is attached ----
+        api_key = os.getenv("UI_ADMIN_API_KEY") or os.getenv("ADMIN_API_KEY") or ""
+        headers = {"X-User-Id": st.session_state.public_user_id.strip()}
+        if api_key:
+            headers["X-API-Key"] = api_key
+
+        r = _req("POST", UPLOAD_PATH, user_id=st.session_state.public_user_id.strip(), files=files, headers=headers)
+        if getattr(r, "ok", False):
+            st.session_state.doc_id = (r.json() or {}).get("doc_id")
+            st.session_state.processed_token = current_token
+            st.session_state.processed_name  = current_name
+            st.session_state.processed_size  = current_size
+            st.toast("Processed ✓", icon="✅")
+            st.rerun()  # immediately reflect that Q&A can be shown
+        else:
+            st.error(f"Upload failed: {getattr(r, 'status_code', '?')} {getattr(r, 'text', '')}")
 
 # ==================== Q&A ====================
-if st.session_state.get("doc_id"):
+can_show_qna = bool(st.session_state.get("doc_id")) and not is_new_unprocessed
+
+if can_show_qna:
     st.header("❓ Ask a question")
     q = st.text_area("Your question", key="q_text", height=120,
                      placeholder=f"At least {MIN_QUESTION_CHARS} characters…",
@@ -445,9 +518,23 @@ if st.session_state.get("doc_id"):
     c1, c2, c3 = st.columns([1,1,1])
     with c1: do_verify    = st.checkbox("Verification", value=True, key="opt_verify", disabled=not can_query_right)
     with c2: do_followups = st.checkbox("Suggest follow-up questions", value=True, key="opt_followups", disabled=not can_query_right)
-    with c3: run          = st.button("Get answer", type="primary", disabled=(not can_query_right or qlen < MIN_QUESTION_CHARS))
+    with c3: run_click    = st.button("Get answer", type="primary", disabled=(not can_query_right or qlen < MIN_QUESTION_CHARS))
 
-    if run:
+    # 🔹 NEW: auto-run if a follow-up was clicked
+    auto_q = st.session_state.pop("followup_q", None)
+    if auto_q:
+        st.session_state.q_text = auto_q   # keep textarea in sync
+        q = auto_q
+        qlen = len(q.strip())
+
+    should_run = run_click or bool(auto_q)
+
+    if should_run:
+        t_total_start = time.perf_counter()
+        with st.status("🔄 Working on your answer…", expanded=True) as status:
+            prog = st.progress(0)
+            status.write("Preparing request…")
+            prog.progress(10)
         payload = {
             "doc_id": st.session_state.doc_id,
             "question": q,
@@ -456,37 +543,52 @@ if st.session_state.get("doc_id"):
             "lang_hint": st.session_state.lang_code,
         }
 
+        prog.progress(25)
+        status.update(label="📨 Sending request to server…")
+
         api_key = (os.getenv("UI_ADMIN_API_KEY") or os.getenv("ADMIN_API_KEY") or "").strip()
         headers = {"X-User-Id": uid}
         if api_key:
             headers["X-API-Key"] = api_key
 
+        prog.progress(40)
+
+        # ---- network call
         r = _req("POST", QUERY_PATH, user_id=uid, json=payload, headers=headers)
+
+        # ⏱️ API timing
+        t_api_start = time.perf_counter()
+        r = _req("POST", QUERY_PATH, user_id=uid, json=payload, headers=headers)
+        api_elapsed = time.perf_counter() - t_api_start
+
+        prog.progress(70)
         if not getattr(r, "ok", False):
+            status.update(label="❌ Request failed", state="error")
             st.error(f"Query failed: {r.status_code} {r.text}")
         else:
+            status.update(label="✅ Answer received — rendering…", state="running")
             res = r.json() or {}
             st.subheader("💬 Answer")
             st.write(res.get("answer", ""))
             conf = res.get("confidence_score", 0)
             model = res.get("model") or res.get("model_used") or "unknown"
+            total_elapsed = time.perf_counter() - t_total_start
             m1, m2, m3 = st.columns([1,1,1])
             with m1: st.caption(f'🎯 Confidence: {conf if isinstance(conf, (int,float)) else str(conf)}')
             with m2: st.caption(f'🧠 Model: {model}')
-            with m3: st.caption(f'🌐 Language hint: {st.session_state.lang_code.upper()}')
+            with m3: st.caption(f'⏱️ Time: {_fmt_secs(total_elapsed)}')
+            #with m3: st.caption(f'🌐 Language hint: {st.session_state.lang_code.upper()}')
 
             # Verification & citations
             show_verification(res.get("verification"))
             show_citations(res.get("citations"))
 
-            # Follow-ups (clickable)
+            # Follow-ups (clickable) — this block stays as-is; see tweak below
             f = res.get("followups") or {}
             clarify = f.get("clarify") or []
             deepen  = f.get("deepen") or []
             if clarify or deepen:
                 st.subheader("🔍 Follow-up questions")
-
-                # lightweight styling for separation
                 st.markdown("""
                 <style>
                 .fu-card{border:1px solid rgba(49,51,63,.18);border-radius:.6rem;padding:.75rem 1rem;margin-top:.25rem}
@@ -502,6 +604,7 @@ if st.session_state.get("doc_id"):
                     if clarify:
                         for i, q2 in enumerate(clarify, 1):
                             if st.button(q2, key=f"clarify_{i}_{abs(hash(q2))}", use_container_width=True):
+                                st.session_state.followup_q = q2   # triggers auto-run on next render
                                 st.session_state.q_text = q2
                                 st.rerun()
                     else:
@@ -513,6 +616,7 @@ if st.session_state.get("doc_id"):
                     if deepen:
                         for i, q2 in enumerate(deepen, 1):
                             if st.button(q2, key=f"deepen_{i}_{abs(hash(q2))}", use_container_width=True):
+                                st.session_state.followup_q = q2   # triggers auto-run on next render
                                 st.session_state.q_text = q2
                                 st.rerun()
                     else:
@@ -521,6 +625,9 @@ if st.session_state.get("doc_id"):
 
             # Session history
             st.session_state.history.append({"q": q, "res": res, "ts": time.time()})
+
+            prog.progress(100)
+            status.update(label=f"✅ Answer ready in {_fmt_secs(total_elapsed)}", state="complete")
 
 # ==================== HISTORY ====================
 if st.session_state.get("history"):
