@@ -66,3 +66,9 @@ def submit_access_request(user_id: str, payload: dict) -> tuple[bool, dict | str
         except Exception:
             return True, {}
     return False, getattr(r, "text", "Request failed")
+
+def _mask_first_last(s: str | None) -> str:
+    if not s:
+        return "—"
+    s = str(s).strip()
+    return s[0] + "…" + s[-1] if len(s) >= 2 else s
