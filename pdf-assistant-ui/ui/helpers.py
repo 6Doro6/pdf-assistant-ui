@@ -72,3 +72,6 @@ def _mask_first_last(s: str | None) -> str:
         return "—"
     s = str(s).strip()
     return s[0] + "…" + s[-1] if len(s) >= 2 else s
+
+def _fmt_secs(s: float) -> str:
+    return f"{s*1000:.0f} ms" if s < 1 else f"{s:.1f} s"
