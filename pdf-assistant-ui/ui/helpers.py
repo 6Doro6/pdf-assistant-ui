@@ -15,13 +15,24 @@ FORM_SUBMIT_PATH = os.getenv("FORM_SUBMIT_PATH", "/forms/submit")
 
 
 # ==================== HTTP core ====================
-def _req(method: str, path: str, user_id: str | None = None, **kwargs) -> requests.Response:
+def _req(
+    method: str,
+    path: str,
+    user_id: str | None = None,
+    timeout_s: float | None = None,
+    connect_timeout_s: float | None = None,
+    **kwargs
+    ) -> requests.Response:
     headers = kwargs.pop("headers", {}) or {}
     if user_id:
         headers[USER_ID_HEADER] = user_id
     url = f"{API_BASE}{path}"
+    read_timeout = float(timeout_s if timeout_s is not None else float(os.getenv("UI_HTTP_TIMEOUT", "180")))
+    connect_timeout = float(connect_timeout_s if connect_timeout_s is not None else float(os.getenv("UI_CONNECT_TIMEOUT", "10")))
+    timeouts = (connect_timeout, read_timeout)
+
     try:
-        return requests.request(method, url, headers=headers, timeout=60, **kwargs)
+        return requests.request(method, url, headers=headers, timeout=timeouts, **kwargs)
     except requests.RequestException as e:
         class _R:
             ok=False; status_code=0; text=f"Network error: {e}"
@@ -75,3 +86,5 @@ def _mask_first_last(s: str | None) -> str:
 
 def _fmt_secs(s: float) -> str:
     return f"{s*1000:.0f} ms" if s < 1 else f"{s:.1f} s"
+
+

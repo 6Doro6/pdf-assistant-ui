@@ -104,15 +104,49 @@ st.title("📕 PDF Assistant")
 
 # ==================== UI helpers ====================
 def show_verification(v: dict | None):
-    if not v: return
-    ok = v.get("is_accurate")
+    if not v:
+        return
+
+    ok   = bool(v.get("is_accurate"))
     conf = v.get("confidence")
-    st.markdown(
-        f"**Verification:** {'✅ accurate' if ok else '⚠️ please double-check'}"
-        + (f" — {conf}" if conf is not None else "")
-    )
-    if v.get("explanation"): st.write(v["explanation"])
-    if v.get("issues_found"): st.caption("Issues: " + ", ".join(v["issues_found"]))
+    #issues = v.get("issues_found") or []
+    expl   = (v.get("explanation") or "").strip()
+
+    icon  = "✅" if ok else "⚠️"
+    #title = "Accurate" if ok else "Please double-check"
+
+    st.markdown("""
+    <style>
+
+      .verif-title{
+        font-weight:800;
+        font-size:1.1rem;
+        margin:0 0 .25rem 0;
+      }
+      .verif-meta{ opacity:.9; margin-bottom:.5rem }
+      .verif-list li{ margin-bottom:.15rem }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.subheader(f"🚦Verification")   # same level/size as “💬 Answer”
+    st.markdown("<div class='verif-card'>", unsafe_allow_html=True)
+
+    #st.markdown(f"<div class='verif-title'>{title}</div>", unsafe_allow_html=True)
+
+    meta_bits = []
+    if conf is not None:
+        meta_bits.append(f"Confidence: {icon} **{conf}**")
+    if meta_bits:
+        st.markdown("<div class='verif-meta'>" + " • ".join(meta_bits) + "</div>", unsafe_allow_html=True)
+
+    if expl:
+        st.write(expl)
+
+    #if issues:
+    #    st.markdown("**Issues found:**")
+    #    st.markdown("\n".join(f"- {i}" for i in issues))
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 #def show_citations(cits: list | None):
 #    if not cits: return
@@ -198,7 +232,8 @@ for k, v in {
     "uid_locked": False,
     "processed_token": None,
     "processed_name": None,
-    "processed_size": None
+    "processed_size": None,
+    "context_id": "755890001",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -255,15 +290,15 @@ with st.sidebar:
         )
         st.caption("🔒 User ID is locked. Use **Reset** to change it.")
 
-    st.subheader("Language")
-    lang_choice = st.radio(
-        "Define the language you would like to get your responses in.",
-        options=["NL","FR","DE","EN"],
-        index=["NL","FR","DE","EN"].index(st.session_state.get("lang_code","nl").upper()) if st.session_state.get("lang_code") else 3,
-        horizontal=True,
-        help="The pdf you'll submit is independant of the language you chose here."
-    )
-    st.session_state.lang_code = LANG_LABEL_TO_CODE[lang_choice]
+    #st.subheader("Language")
+    #lang_choice = st.radio(
+    #    "Define the language you would like to get your responses in.",
+    #    options=["NL","FR","DE","EN"],
+    #    index=["NL","FR","DE","EN"].index(st.session_state.get("lang_code","nl").upper()) if st.session_state.get("lang_code") else 3,
+    #    horizontal=True,
+    #    help="The pdf you'll submit is independant of the language you chose here."
+    #)
+    #st.session_state.lang_code = LANG_LABEL_TO_CODE[lang_choice]
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -503,12 +538,107 @@ with status_col2:
             st.rerun()  # immediately reflect that Q&A can be shown
         else:
             st.error(f"Upload failed: {getattr(r, 'status_code', '?')} {getattr(r, 'text', '')}")
+# ==================== Context & language ====================
+CONTEXTS = {
+    "755890001": {
+        "label_en":"📜 Legal text",
+        "label_fr":"📜 Texte juridique",
+        "label_nl":"📜 Juridische tekst",
+        "label_de":"📜 Rechtstext",
+        "followup_hint":"Ask for article numbers, definitions, exceptions, effective dates."
+        },
+    "755890002": {
+        "label_en":"🧩 Specifications",
+        "label_fr":"🧩 Cahier des charges",
+        "label_nl":"🧩 Lastenboek",
+        "label_de":"🧩 Pflichtenheft",
+        "followup_hint":"Probe priorities, acceptance criteria, dependencies, deadlines."
+        },
+    "755890003": {
+        "label_en":"🔧 User manual",
+        "label_fr":"🔧 Mode d’emploi",
+        "label_nl":"🔧 Handleiding",
+        "label_de":"🔧 Bedienungsanleitung",
+        "followup_hint":"Offer variants per OS/model, safety notes, quick-start tips."
+        },
+    "755890004": {
+        "label_en":"📘 Course",
+        "label_fr":"📘 Cours",
+        "label_nl":"📘 Cursus",
+        "label_de":"📘 Kurs",
+        "followup_hint":"Suggest exercises, prerequisite refreshers, exam-style questions."
+        },
+    "755890005": {
+        "label_en":"📊 Financial report",
+        "label_fr":"📊 Rapport financier",
+        "label_nl":"📊 Financieel rapport",
+        "label_de":"📊 Finanzbericht",
+        "followup_hint":"Probe unusual variances, accounting policies, and segment notes."
+        },
+    "755890006": {
+        "label_en":"🔬 Scientific paper",
+        "label_fr":"🔬 Article scientifique",
+        "label_nl":"🔬 Wetenschappelijk artikel",
+        "label_de":"🔬 Wissenschaftliche Arbeit",
+        "followup_hint":"Ask about sample size, controls, effect sizes, confidence intervals."
+        },
+    "755890007": {
+        "label_en":"📑 Policy / Compliance",
+        "label_fr":"📑 Politique / Conformité",
+        "label_nl":"📑 Beleid / Compliance",
+        "label_de":"📑 Richtlinie / Compliance",
+        "followup_hint":"Probe ownership, timelines, and evidence needed for compliance."
+        },
+}
+LANG_LABEL_TO_CODE = {"NL":"nl","FR":"fr","DE":"de","EN":"en"}
+
+def _ctx_label(cid: str, lang_code: str) -> str:
+    d = CONTEXTS.get(cid, {})
+    key = f"label_{(lang_code or 'en').lower()}"
+    return d.get(key) or d.get("label_en") or cid
+
+def _choose_followup(q2: str):
+    st.session_state.q_text = q2
+    st.session_state.followup_q = q2    # so the prefill block above runs
+    st.session_state._from_followup = True   # optional: to auto-run
+    st.rerun()
 
 # ==================== Q&A ====================
 can_show_qna = bool(st.session_state.get("doc_id")) and not is_new_unprocessed
 
 if can_show_qna:
+    st.subheader("⚙️ Context & language")
+
+    # ---- Language (moved from sidebar to main)
+    lang_choice = st.radio(
+        "Answer language",
+        options=["NL","FR","DE","EN"],
+        index=["NL","FR","DE","EN"].index(st.session_state.get("lang_code","nl").upper()) if st.session_state.get("lang_code") else 1,
+        horizontal=True,
+        help="This does not depend on the PDF’s language; it controls the answer language."
+    )
+    st.session_state.lang_code = LANG_LABEL_TO_CODE[lang_choice]
+
+    # ---- Context (dropdown)
+    label_key = f"label_{st.session_state.lang_code.lower()}"
+    ctx_ids = list(CONTEXTS.keys())
+    # current index
+    cur_idx = next((i for i, cid in enumerate(ctx_ids) if cid == st.session_state.context_id), 0)
+    selected_ctx_id = st.selectbox(
+        "Context",
+        options=ctx_ids,
+        index=cur_idx,
+        format_func=lambda cid: CONTEXTS[cid].get(label_key) or CONTEXTS[cid]["label_en"],
+        help="Choose how the assistant should read your document."
+    )
+    st.session_state.context_id = selected_ctx_id
+
+    # (optional) tiny caption with the chosen label
+    st.caption(f"Selected: {_ctx_label(st.session_state.context_id, st.session_state.lang_code)}")
     st.header("❓ Ask a question")
+    auto_q = st.session_state.pop("followup_q", None)
+    if auto_q:
+        st.session_state.q_text = auto_q
     q = st.text_area("Your question", key="q_text", height=120,
                      placeholder=f"At least {MIN_QUESTION_CHARS} characters…",
                      disabled=not can_query_right)
@@ -520,122 +650,155 @@ if can_show_qna:
     with c2: do_followups = st.checkbox("Suggest follow-up questions", value=True, key="opt_followups", disabled=not can_query_right)
     with c3: run_click    = st.button("Get answer", type="primary", disabled=(not can_query_right or qlen < MIN_QUESTION_CHARS))
 
-    # 🔹 NEW: auto-run if a follow-up was clicked
-    auto_q = st.session_state.pop("followup_q", None)
-    if auto_q:
-        st.session_state.q_text = auto_q   # keep textarea in sync
-        q = auto_q
-        qlen = len(q.strip())
-
-    should_run = run_click or bool(auto_q)
+    should_run = run_click
 
     if should_run:
         t_total_start = time.perf_counter()
-        with st.status("🔄 Working on your answer…", expanded=True) as status:
-            prog = st.progress(0)
-            status.write("Preparing request…")
-            prog.progress(10)
-        payload = {
-            "doc_id": st.session_state.doc_id,
-            "question": q,
-            "do_verify": do_verify,
-            "do_followups": do_followups,
-            "lang_hint": st.session_state.lang_code,
-        }
+        # Create placeholders to remove later
+        status_ph = st.empty()
+        prog_ph = st.empty()
 
-        prog.progress(25)
-        status.update(label="📨 Sending request to server…")
+        try:
+            # Show a temporary status + progress while we prepare/send/wait
+            with status_ph.status("🔄 Working on your answer…", expanded=True) as status:
+                #prog = prog_ph.progress(0)
+                #status.write("Preparing answer")
+                #prog.progress(10)
+                payload = {
+                    "doc_id": st.session_state.doc_id,
+                    "question": q,
+                    "do_verify": do_verify,
+                    "do_followups": do_followups,
+                    "lang_hint": st.session_state.lang_code,
+                    "context_id": st.session_state.context_id,
+                }
 
-        api_key = (os.getenv("UI_ADMIN_API_KEY") or os.getenv("ADMIN_API_KEY") or "").strip()
-        headers = {"X-User-Id": uid}
-        if api_key:
-            headers["X-API-Key"] = api_key
+                status.update(label="🔄 Working on your answer…")
+                #prog.progress(40)
 
-        prog.progress(40)
+                api_key = (os.getenv("UI_ADMIN_API_KEY") or os.getenv("ADMIN_API_KEY") or "").strip()
+                headers = {"X-User-Id": uid}
+                if api_key:
+                    headers["X-API-Key"] = api_key
 
-        # ---- network call
-        r = _req("POST", QUERY_PATH, user_id=uid, json=payload, headers=headers)
+                # ⏱️ API timing
+                t_api_start = time.perf_counter()
+                r = _req("POST", QUERY_PATH, user_id=uid, json=payload, headers=headers)
+                api_elapsed = time.perf_counter() - t_api_start
 
-        # ⏱️ API timing
-        t_api_start = time.perf_counter()
-        r = _req("POST", QUERY_PATH, user_id=uid, json=payload, headers=headers)
-        api_elapsed = time.perf_counter() - t_api_start
+                #prog.progress(100)
+                total_elapsed = time.perf_counter() - t_total_start
+                status.update(label=f"✅ Answer received in {_fmt_secs(total_elapsed)}", state="complete")
 
-        prog.progress(70)
-        if not getattr(r, "ok", False):
-            status.update(label="❌ Request failed", state="error")
-            st.error(f"Query failed: {r.status_code} {r.text}")
-        else:
-            status.update(label="✅ Answer received — rendering…", state="running")
-            res = r.json() or {}
-            st.subheader("💬 Answer")
-            st.write(res.get("answer", ""))
-            conf = res.get("confidence_score", 0)
-            model = res.get("model") or res.get("model_used") or "unknown"
-            total_elapsed = time.perf_counter() - t_total_start
-            m1, m2, m3 = st.columns([1,1,1])
-            with m1: st.caption(f'🎯 Confidence: {conf if isinstance(conf, (int,float)) else str(conf)}')
-            with m2: st.caption(f'🧠 Model: {model}')
-            with m3: st.caption(f'⏱️ Time: {_fmt_secs(total_elapsed)}')
-            #with m3: st.caption(f'🌐 Language hint: {st.session_state.lang_code.upper()}')
+            prog_ph.empty()
+            status_ph.empty()
 
-            # Verification & citations
-            show_verification(res.get("verification"))
-            show_citations(res.get("citations"))
+            if not getattr(r, "ok", False):
+                status.update(label="❌ Request failed", state="error")
+                st.error(f"Query failed: {r.status_code} {r.text}")
+            else:
+                #status.update(label="✅ Answer received — rendering…", state="running")
+                res = r.json() or {}
+                st.subheader("💬 Answer")
+                st.write(res.get("answer", ""))
+                conf = res.get("confidence_score", 0)
+                model = res.get("model") or res.get("model_used") or "unknown"
+                total_elapsed = time.perf_counter() - t_total_start
+                m1, m2, m3 = st.columns([1,1,1])
+                with m1: st.caption(f'🎯 Confidence: {conf if isinstance(conf, (int,float)) else str(conf)}')
+                with m2: st.caption(f'🧠 Model: {model}')
+                with m3: st.caption(f'⏱️ Time: {_fmt_secs(total_elapsed)}')
+                #with m3: st.caption(f'🌐 Language hint: {st.session_state.lang_code.upper()}')
 
-            # Follow-ups (clickable) — this block stays as-is; see tweak below
-            f = res.get("followups") or {}
-            clarify = f.get("clarify") or []
-            deepen  = f.get("deepen") or []
-            if clarify or deepen:
-                st.subheader("🔍 Follow-up questions")
-                st.markdown("""
-                <style>
-                .fu-card{border:1px solid rgba(49,51,63,.18);border-radius:.6rem;padding:.75rem 1rem;margin-top:.25rem}
-                .fu-title{font-weight:700;margin:0 0 .5rem}
-                .fu-empty{opacity:.6}
-                </style>
-                """, unsafe_allow_html=True)
+                # Verification & citations
+                show_verification(res.get("verification"))
+                show_citations(res.get("citations"))
 
-                col_c, col_d = st.columns(2, gap="large")
+                # Follow-ups (clickable) — this block stays as-is; see tweak below
+                f = res.get("followups") or {}
+                clarify = f.get("clarify") or []
+                deepen  = f.get("deepen") or []
+                if clarify or deepen:
+                    st.subheader("🔍 Follow-up questions")
+                    st.markdown("""
+                    <style>
+                    .fu-card{border:1px solid rgba(49,51,63,.18);border-radius:.6rem;padding:.75rem 1rem;margin-top:.25rem}
+                    .fu-title{font-weight:700;margin:0 0 .5rem}
+                    .fu-empty{opacity:.6}
+                    </style>
+                    """, unsafe_allow_html=True)
 
-                with col_c:
-                    st.markdown('<div class="fu-card"><div class="fu-title">🧼 Clarify</div>', unsafe_allow_html=True)
-                    if clarify:
-                        for i, q2 in enumerate(clarify, 1):
-                            if st.button(q2, key=f"clarify_{i}_{abs(hash(q2))}", use_container_width=True):
-                                st.session_state.followup_q = q2   # triggers auto-run on next render
-                                st.session_state.q_text = q2
-                                st.rerun()
-                    else:
-                        st.markdown('<div class="fu-empty">No clarify suggestions</div>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    col_c, col_d = st.columns(2, gap="large")
 
-                with col_d:
-                    st.markdown('<div class="fu-card"><div class="fu-title">🧠 Deepen</div>', unsafe_allow_html=True)
-                    if deepen:
-                        for i, q2 in enumerate(deepen, 1):
-                            if st.button(q2, key=f"deepen_{i}_{abs(hash(q2))}", use_container_width=True):
-                                st.session_state.followup_q = q2   # triggers auto-run on next render
-                                st.session_state.q_text = q2
-                                st.rerun()
-                    else:
-                        st.markdown('<div class="fu-empty">No deepen suggestions</div>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    with col_c:
+                        st.markdown('<div class="fu-card"><div class="fu-title">🧼 Clarify</div>', unsafe_allow_html=True)
+                        if clarify:
+                            for i, q2 in enumerate(clarify, 1):
+                                if st.button(
+                                    q2,
+                                    key=f"clarify_{i}_{abs(hash(q2))}",
+                                    use_container_width=True,
+                                    on_click=_choose_followup,
+                                    args=(q2,),
+                                    ):
+                                    st.session_state.followup_q = q2   # triggers auto-run on next render
+                                    st.session_state.q_text = q2
+                                    st.rerun()
+                        else:
+                            st.markdown('<div class="fu-empty">No clarify suggestions</div>', unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-            # Session history
-            st.session_state.history.append({"q": q, "res": res, "ts": time.time()})
+                    with col_d:
+                        st.markdown('<div class="fu-card"><div class="fu-title">🧠 Deepen</div>', unsafe_allow_html=True)
+                        if deepen:
+                            for i, q2 in enumerate(deepen, 1):
+                                if st.button(
+                                    q2,
+                                    key=f"deepen_{i}_{abs(hash(q2))}",
+                                    use_container_width=True,
+                                    on_click=_choose_followup,
+                                    args=(q2,),
+                                    ):
+                                    st.session_state.followup_q = q2   # triggers auto-run on next render
+                                    st.session_state.q_text = q2
+                                    st.rerun()
+                        else:
+                            st.markdown('<div class="fu-empty">No deepen suggestions</div>', unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-            prog.progress(100)
-            status.update(label=f"✅ Answer ready in {_fmt_secs(total_elapsed)}", state="complete")
+                # Session history
+                st.session_state.history.append({
+                    "q": q,
+                    "res": res,
+                    "ts": time.time(),
+                    "total_s": total_elapsed,
+                    "api_s": api_elapsed,
+                    })
+
+        except Exception as e:
+            # Make sure the loaders are gone even on error
+            prog_ph.empty()
+            status_ph.empty()
+            st.error(f"Something went wrong: {type(e).__name__}: {e}")
+
 
 # ==================== HISTORY ====================
 if st.session_state.get("history"):
     st.header("📚 Session history")
+    total_count = len(st.session_state.history)
     for idx, item in enumerate(reversed(st.session_state.history), start=1):
         q = item["q"]; res = item["res"]
-        with st.expander(f"Q{len(st.session_state.history)-idx+1}: {q[:80]}…"):
+        with st.expander(f"Q{total_count - idx + 1}: {q[:80]}…"):
             st.write(res.get("answer", ""))
-            conf = res.get("confidence_score", 0)
+            conf  = res.get("confidence_score", 0)
             model = res.get("model") or res.get("model_used") or "unknown"
-            st.caption(f'🎯 {conf if isinstance(conf, (int,float)) else str(conf)} • 🧠 {model} • 🌐 {st.session_state.lang_code.upper()}')
+
+            total_s = item.get("total_s")
+            api_s   = item.get("api_s")
+
+            st.caption(
+                f'🎯 {conf if isinstance(conf,(int,float)) else str(conf)} • '
+                f'🧠 {model} • '
+                f'⏱️ {_fmt_secs(total_s) if total_s is not None else "—"} '
+                #f'• 🔌 {_fmt_secs(api_s) if api_s is not None else "—"}'
+            )
