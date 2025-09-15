@@ -353,6 +353,17 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
+st.markdown("""
+<style>
+/* hide top-right toolbar (includes GitHub/view-source button) */
+[data-testid="stToolbar"] { visibility: hidden; height: 0; }
+
+/* hide bottom-right Streamlit viewer badge */
+footer {visibility: hidden;}                      /* older versions */
+div[class*="viewerBadge_"] { display: none !important; }  /* newer */
+</style>
+""", unsafe_allow_html=True)
+
 # ==================== STATUS BANNER ====================
 uid  = st.session_state["public_user_id"].strip()
 role = st.session_state["role"]
