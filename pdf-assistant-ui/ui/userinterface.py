@@ -355,12 +355,12 @@ for k, v in {
 
 st.markdown("""
 <style>
-/* hide top-right toolbar (includes GitHub/view-source button) */
-[data-testid="stToolbar"] { visibility: hidden; height: 0; }
+/* hide any anchor linking to your repo anywhere on the page */
+a[href*="github.com/your-org/your-repo"] { display: none !important; }
 
-/* hide bottom-right Streamlit viewer badge */
-footer {visibility: hidden;}                      /* older versions */
-div[class*="viewerBadge_"] { display: none !important; }  /* newer */
+/* hide a specific image (choose one selector that matches yours) */
+img[src*="avatars.githubusercontent.com/"] { display: none !important; }  /* GH avatar */
+img[alt="Your Avatar"] { display: none !important; }                      /* by alt text */
 </style>
 """, unsafe_allow_html=True)
 
